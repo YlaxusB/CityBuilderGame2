@@ -1,0 +1,13 @@
+#HotbarUI-container{
+	background-color:red;
+	width:100%;
+	height:100%;
+}
+
+#HotbarContainer{
+	display:flex;
+	position:absolute;
+	margin-top:auto;
+	width:75%;
+	height:120px;
+}

@@ -1,3 +1,4 @@
+using JetBrains.Annotations;
 using System.Collections;
 using System.Collections.Generic;
 using Unity.VisualScripting;
@@ -8,6 +9,7 @@ using UnityEngine.UIElements;
 public class UIScript : MonoBehaviour
 {
     VisualElement root;
+    public StraightRoadMainScript straightRoadMainScript;
     private void OnEnable()
     {
         root = gameObject.GetComponent<UIDocument>().rootVisualElement;
@@ -41,7 +43,7 @@ public class UIScript : MonoBehaviour
 
     void road1Clicked()
     {
-
+        straightRoadMainScript.isMouseHoldingRoad = true;
     }
 
 }

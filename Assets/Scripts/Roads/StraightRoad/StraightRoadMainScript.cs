@@ -12,6 +12,12 @@ using UnityEditor.IMGUI.Controls;
 using System.Drawing;
 using System.Linq;
 using Arcs;
+using UnityEngine.UIElements;
+using UnityEngine.XR;
+using static UnityEditor.PlayerSettings;
+using static UnityEngine.ParticleSystem;
+using Unity.VisualScripting;
+using UnityEditor.PackageManager.UI;
 //using System.Numerics;
 
 public class StraightRoadMainScript : MonoBehaviour
@@ -42,13 +48,7 @@ public class StraightRoadMainScript : MonoBehaviour
 
     Coroutine roadPreviewCoroutine;
 
-    void Start()
-    {
-        continuationObject = Instantiate(prefab, new Vector3(), Quaternion.identity);
-        continuationObject.AddComponent<MeshFilter>();
-        continuationObject.AddComponent<MeshRenderer>();
-        continuationObject.GetComponent<MeshRenderer>().material = roadMaterial;
-    }
+    public Vector3 testVector;
 
     public Transform startPoint;
     public Transform middlePoint;
@@ -62,10 +62,18 @@ public class StraightRoadMainScript : MonoBehaviour
 
     public Transform testCube;
 
-    public float testAngle;
-
     public bool isMouseToRight; // Is mouse to the right of the start point
     public Material roadMaterial;
+
+    // Suggested vector is the vector when the player mouse is over a road, this vector is the center of the road. (it should only be used for pre preview, before starting building the road)
+    public Vector3 suggestedMouseVector;
+    public bool isMouseOverRoad;
+    public bool isBuildingWithIntersection;
+
+    private RaycastHit mouseRaycastHit;
+
+    public GameObject intersectingObject;
+    public GameObject objectMouseOver;
 
     void OnEnable()
     {
@@ -82,22 +90,32 @@ public class StraightRoadMainScript : MonoBehaviour
         {
             if (isMouseHoldingRoad)
             {
+                RaycastHit hit;
+                Ray ray = camera.ScreenPointToRay(Input.mousePosition);
+                if (Physics.Raycast(ray, out hit))
+                {
+                    mouseRaycastHit = hit;
+                };
+
                 // Road Pre Preview
                 if (clickIndex == 0)
                 {
                     // Move Circle Preview and create its mesh
-                    previewObject.transform.position = Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.1f, 0);
+                    if (!isMouseOverRoad)
+                    {
+                        suggestedMouseVector = Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.2f, 0);
+                    }
+                    roadStartPoint = suggestedMouseVector;
+                    previewObject.transform.position = suggestedMouseVector; //Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.1f, 0);
                     previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.CreatePrePreviewMesh(previewObject, Raycast3D.RaycastPoint(camera), 2);
 
                     if (Input.GetButtonDown("Fire1"))
                     {
+                        intersectingObject = hit.transform.gameObject;
                         // Changed to click index 1 == road preview, with start and end
-                        RaycastHit hit;
-                        Ray ray = camera.ScreenPointToRay(Input.mousePosition);
-
-                        if (Physics.Raycast(ray, out hit))
+                        if (Physics.Raycast(ray))
                         {
-                            roadStartPoint = hit.point;
+                            //roadStartPoint = hit.point;
                             clickIndex++;
                         }
                     }
@@ -105,138 +123,101 @@ public class StraightRoadMainScript : MonoBehaviour
                 // Road Straight Preview, with startPoint already set and endPoint being set by a raycast
                 else if (clickIndex == 1)
                 {
-                    if (!isContinuing)
+                    if (isBuildingWithIntersection)
                     {
-                        // Move the preview object to start position
-                        previewObject.transform.position = roadStartPoint;
-                        // Get the angle and rotate the straight road
-                        float angle = -Mathf.Atan2(Raycast3D.RaycastPoint(camera).z - roadStartPoint.z, Raycast3D.RaycastPoint(camera).x - roadStartPoint.x) * (180 / Mathf.PI);
-                        previewObject.transform.localRotation = Quaternion.Euler(0, angle, 0);
-                        // Create and assign the straight road mesh
-                        previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.1f, 0) }, 2);
-                        // Loop to show the road preview && wait for next click
-                        if (Input.GetButtonDown("Fire1"))
+                        //Debug.Log("Building over intersection");
+                        UpdatePreview();
+                        // Assume the first rectangle is named "outerRectangle" and the second is named "innerRectangle"
+                        // Assume the first rectangle is named "outerRectangle" and the second is named "innerRectangle"
+                        Collider innerCollider = intersectingObject.GetComponent<Collider>();
+                        Collider outerCollider = previewObject.GetComponent<Collider>();
+
+                        float raycastDistance = Vector3.Distance(previewObject.transform.position, hit.point);
+
+                        RaycastHit leftHit;
+                        Ray leftRay = new Ray(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(raycastDistance, 0, roadWidth)), -previewObject.transform.right);
+
+                        RaycastHit rightHit;
+                        Ray rightRay = new Ray(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(raycastDistance, 0, -roadWidth)), -previewObject.transform.right);
+
+                        if (innerCollider.Raycast(leftRay, out leftHit, raycastDistance) && innerCollider.Raycast(rightRay, out rightHit, raycastDistance))
                         {
-                            // Changed to click index 2 == build road, destroy preview, reset click index
-                            RaycastHit hit;
-                            Ray ray = camera.ScreenPointToRay(Input.mousePosition);
-                            if (Physics.Raycast(ray, out hit))
-                            {
-                                roadEndPoint = hit.point;
-                                // Create the final road
-                                GameObject newRoad = new GameObject();
-                                MeshRenderer newRoadMeshRenderer = newRoad.AddComponent<MeshRenderer>();
-                                newRoadMeshRenderer.material = roadMaterial;
-                                MeshFilter newRoadMeshFilter = newRoad.AddComponent<MeshFilter>();
-                                Mesh newRoadMesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, roadEndPoint }, 2);
-                                newRoadMeshFilter.mesh = newRoadMesh;
-                                newRoad.transform.position = new Vector3(roadStartPoint.x, 0.2f, roadStartPoint.z);
-                                float newRoadAngle = -Mathf.Atan2(roadEndPoint.z - roadStartPoint.z, roadEndPoint.x - roadStartPoint.x) * (180 / Mathf.PI);
-                                newRoad.transform.localRotation = Quaternion.Euler(0, newRoadAngle, 0);
-                                newRoad.name = "Road";
-                                lastRoadAngle = newRoadAngle;
-                                // Reset click index
-                                clickIndex = 0;
-                                // Start the continuation road function
-                                ContinueRoad();
-                            }
+                            testCube.transform.position = leftHit.point;
+                            Mesh newMesh = previewObject.GetComponent<MeshFilter>().mesh;
+                            Vector3[] vertices = newMesh.vertices;
+                            vertices[0] = previewObject.transform.InverseTransformPoint(leftHit.point);
+                            vertices[1] = previewObject.transform.InverseTransformPoint(rightHit.point);
+                            newMesh.vertices = vertices;
+                            newMesh.RecalculateBounds();
+                            newMesh.RecalculateNormals();
+                            previewObject.GetComponent<MeshFilter>().mesh = newMesh;
                         }
-                    }
-                    else
-                    {
-
-                        RaycastHit hit;
-                        Ray ray = camera.ScreenPointToRay(Input.mousePosition);
-                        Physics.Raycast(ray, out hit);
-
-                        // Active reference is the center of the arc
-                        Transform activeReference = GetActiveReference(hit);
-                        // Update for road continuation
-
-                        // calculate the start, middle, and end positions
-                        Vector3 startPoint = reference1.transform.position;
-                        Vector3 centerPoint = activeReference.transform.position;
-                        Vector3 endPoint = previewObject.transform.position;
-                        Vector3 secondVertice = previewObject.transform.position;
-
-                        float arcAngle;
-                        bool reverseNormals;
-
-                        List<Vector2> points;
-                        // 
-                        if (isMouseToRight)
-                        {
-                            // Second vertice is the extremity of the second road
-                            secondVertice += activeReference.TransformDirection(new Vector3(0, 0, roadWidth));
-                            testCube.position = (reference3.transform.position + reference3.transform.TransformDirection(0, 0, roadWidth * 1));
-                            arcAngle = Math.Abs(Vector3.Angle(centerPoint - secondVertice, reference3.transform.TransformDirection(0, 0, roadWidth)) - 180);
-                            points = ArcScript.GetArcPoints(arcAngle, roadWidth / 2, -roadWidth, true);
-                            points.Reverse();
-                            continuationObject.transform.rotation = Quaternion.Euler(90, lastRoadAngle - 90, 180);
-                            continuationObject.transform.Rotate(new Vector3(0f, 180f, 0f), Space.Self);
-                            reverseNormals = true;
-                        }
-                        else
-                        {
-                            secondVertice += activeReference.TransformDirection(new Vector3(0, 0, -roadWidth));
-                            testCube.position = secondVertice;
-                            arcAngle = Vector3.Angle(centerPoint - secondVertice, reference3.transform.TransformDirection(0, 0, roadWidth * 2));
-
-                            points = ArcScript.GetArcPoints(arcAngle, roadWidth / 2, -roadWidth, false);
-                            continuationObject.transform.rotation = Quaternion.Euler(90, lastRoadAngle - 90, 0);
-                            reverseNormals = false;
-                        }
-                        testAngle = arcAngle;
 
 
 
-
-                        continuationObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.CreateMeshAlongPointsB(points, roadWidth, reverseNormals);
-                        continuationObject.transform.position = new Vector3(activeReference.position.x, 0.2f, activeReference.position.z);
-
-
-
-
-
-                        float angle = -Mathf.Atan2(Raycast3D.RaycastPoint(camera).z - roadStartPoint.z, Raycast3D.RaycastPoint(camera).x - roadStartPoint.x) * (180 / Mathf.PI);
-                        activeReference.transform.localRotation = Quaternion.Euler(0, angle, 0);
-                        // Create and assign the straight road mesh
-                        previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, hit.point + new Vector3(0, 0.1f, 0) }, roadWidth);
-
-                        previewObject.transform.localRotation = Quaternion.Euler(0, angle, 0);
-                        previewObject.transform.position = activeReference.transform.position;
-                        //MoveAccordingToRotation(previewObject.transform, previewObject.transform, new Vector3(roadWidth, 0, 0));
-                        Vector3 moveTo = activeReference.name == "ReferencePreview1" ? new Vector3(0, 0, roadWidth) : new Vector3(0, 0, -roadWidth);
-                        MoveAccordingToRotation(activeReference.transform, previewObject.transform, moveTo);
-
-                        roadEndPoint = hit.point;
-                        // Build the road and the continuation arc, connecting the old road (first) and the new road (second)
-                        roadStartPoint = previewObject.transform.position;
                         if (Input.GetButtonDown("Fire1"))
                         {
                             // Build the road and the arc connecting the two roads
                             roadEndPoint = hit.point;
-                            // Create the final road
-                            GameObject newRoad = new GameObject();
-                            MeshRenderer newRoadMeshRenderer = newRoad.AddComponent<MeshRenderer>();
-                                newRoadMeshRenderer.material = roadMaterial;
-                            MeshFilter newRoadMeshFilter = newRoad.AddComponent<MeshFilter>();
-                            Mesh newRoadMesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, roadEndPoint }, 2);
-                            newRoadMeshFilter.mesh = newRoadMesh;
-                            newRoad.transform.position = new Vector3(roadStartPoint.x, 0.2f, roadStartPoint.z);
-                            float newRoadAngle = -Mathf.Atan2(roadEndPoint.z - roadStartPoint.z, roadEndPoint.x - roadStartPoint.x) * (180 / Mathf.PI);
-                            newRoad.transform.localRotation = Quaternion.Euler(0, newRoadAngle, 0);
-                            newRoad.name = "Road";
-                            lastRoadAngle = newRoadAngle;
+                            CreateStraightRoad();
+                            isBuildingWithIntersection = false;
                             // Reset click index
                             clickIndex = 0;
-
+                            // Create the continuation arc
                             GameObject instantiateContinuation = Instantiate(continuationObject);
+                            MeshCollider instantiateContinuationMeshCollider = instantiateContinuation.AddComponent<MeshCollider>();
+                            instantiateContinuationMeshCollider.convex = true;
 
                             // Start the continuation road function
                             ContinueRoad();
                         }
                     }
+                    else
+                    {
+                        if (!isContinuing)
+                        {
+                            // Not a continuation of a road, probably a isolated road
+                            UpdatePreview();
+                            // Loop to show the road preview && wait for next click
+                            if (Input.GetButtonDown("Fire1"))
+                            {
+                                // Changed to click index 2 == build road, destroy preview, reset click index
+                                if (Physics.Raycast(ray))
+                                {
+                                    roadEndPoint = hit.point;
+                                    CreateStraightRoad();
+                                    isBuildingWithIntersection = false;
+                                    // Reset click index
+                                    clickIndex = 0;
+                                    // Start the continuation road function
+                                    ContinueRoad();
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // Continuation of a road
+                            UpdatePreview();
+
+                            if (Input.GetButtonDown("Fire1"))
+                            {
+                                // Build the road and the arc connecting the two roads
+                                roadEndPoint = hit.point;
+                                CreateStraightRoad();
+                                isBuildingWithIntersection = false;
+                                // Reset click index
+                                clickIndex = 0;
+                                // Create the continuation arc
+                                GameObject instantiateContinuation = Instantiate(continuationObject);
+                                MeshCollider instantiateContinuationMeshCollider = instantiateContinuation.AddComponent<MeshCollider>();
+                                instantiateContinuationMeshCollider.convex = true;
+
+                                // Start the continuation road function
+                                ContinueRoad();
+                            }
+                        }
+                    }
+
                 }
 
                 // Right Click decreases clickIndex by 1
@@ -244,10 +225,12 @@ public class StraightRoadMainScript : MonoBehaviour
                 {
                     clickIndex--;
                     isContinuing = false;
+                    EnableArcPreview(false);
                     if (clickIndex <= -1)
                     {
                         clickIndex = 0;
                         isMouseHoldingRoad = false;
+                        isBuildingWithIntersection = false;
                     }
                 }
 
@@ -260,6 +243,142 @@ public class StraightRoadMainScript : MonoBehaviour
             }
             yield return null; // wait for next frame update
         }
+    }
+
+    private void UpdatePreview()
+    {
+        RaycastHit hit;
+        Ray ray = camera.ScreenPointToRay(Input.mousePosition);
+        Physics.Raycast(ray, out hit);
+
+        // Move the preview object to start position
+        previewObject.transform.position = roadStartPoint;
+        // Get the angle and rotate the straight road
+        float angle = -Mathf.Atan2(Raycast3D.RaycastPoint(camera).z - roadStartPoint.z, Raycast3D.RaycastPoint(camera).x - roadStartPoint.x) * (180 / Mathf.PI);
+        previewObject.transform.localRotation = Quaternion.Euler(0, angle, 0);
+        // Create and assign the straight road mesh
+        previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.1f, 0) }, 2);
+
+        // If its a road continuation then also updates the arc
+        if (isContinuing)
+        {
+            Transform activeReference = GetActiveReference(hit);
+
+            // calculate the start, middle, and end positions
+            Vector3 startPoint = reference1.transform.position;
+            Vector3 centerPoint = activeReference.transform.position;
+            Vector3 endPoint = previewObject.transform.position;
+            Vector3 secondVertice = previewObject.transform.position;
+
+            float arcAngle;
+            bool reverseNormals;
+
+            List<Vector2> points;
+
+            // 
+            if (isMouseToRight)
+            {
+                // Second vertice is the extremity of the second road
+                secondVertice += activeReference.TransformDirection(new Vector3(0, 0, roadWidth));
+                arcAngle = Math.Abs(Vector3.Angle(centerPoint - secondVertice, reference3.transform.TransformDirection(0, 0, roadWidth)) - 180);
+                points = ArcScript.GetArcPoints(arcAngle, roadWidth / 2, -roadWidth, true);
+                points.Reverse();
+                continuationObject.transform.rotation = Quaternion.Euler(90, lastRoadAngle - 90, 180);
+                continuationObject.transform.Rotate(new Vector3(0f, 180f, 0f), Space.Self);
+                reverseNormals = true;
+            }
+            else
+            {
+                secondVertice += activeReference.TransformDirection(new Vector3(0, 0, -roadWidth));
+                arcAngle = Vector3.Angle(centerPoint - secondVertice, reference3.transform.TransformDirection(0, 0, roadWidth * 2));
+
+                points = ArcScript.GetArcPoints(arcAngle, roadWidth / 2, -roadWidth, false);
+                continuationObject.transform.rotation = Quaternion.Euler(90, lastRoadAngle - 90, 0);
+                reverseNormals = false;
+            }
+
+            continuationObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.CreateMeshAlongPointsB(points, roadWidth, reverseNormals);
+            continuationObject.transform.position = new Vector3(activeReference.position.x, 0.2f, activeReference.position.z);
+
+            activeReference.transform.localRotation = Quaternion.Euler(0, angle, 0);
+            // Create and assign the straight road mesh
+            previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, hit.point + new Vector3(0, 0.1f, 0) }, roadWidth);
+
+            previewObject.transform.localRotation = Quaternion.Euler(0, angle, 0);
+            previewObject.transform.position = activeReference.transform.position;
+            //MoveAccordingToRotation(previewObject.transform, previewObject.transform, new Vector3(roadWidth, 0, 0));
+            Vector3 moveTo = activeReference.name == "ReferencePreview1" ? new Vector3(0, 0, roadWidth) : new Vector3(0, 0, -roadWidth);
+            MoveAccordingToRotation(activeReference.transform, previewObject.transform, moveTo);
+
+            roadEndPoint = hit.point;
+            // Build the road and the continuation arc, connecting the old road (first) and the new road (second)
+            roadStartPoint = previewObject.transform.position;
+        }
+    }
+
+    // Create the final road
+    public void CreateStraightRoad()
+    {
+        // Creathe the object and assign its components
+        GameObject newRoad = new GameObject();
+        MeshRenderer newRoadMeshRenderer = newRoad.AddComponent<MeshRenderer>();
+        newRoadMeshRenderer.material = roadMaterial;
+        MeshFilter newRoadMeshFilter = newRoad.AddComponent<MeshFilter>();
+        // Build the mesh along the given points
+        Mesh newRoadMesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, roadEndPoint }, 2);
+        newRoadMeshFilter.mesh = newRoadMesh;
+
+
+
+        // If this road is starting from an intersection/junction
+        if (isBuildingWithIntersection)
+        {
+            RaycastHit hit;
+            Ray ray = camera.ScreenPointToRay(Input.mousePosition);
+            Physics.Raycast(ray, out hit);
+
+            float raycastDistance = Vector3.Distance(previewObject.transform.position, hit.point);
+            RaycastHit leftHit;
+            Ray leftRay = new Ray(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(raycastDistance, 0, roadWidth)), -previewObject.transform.right);
+
+            RaycastHit rightHit;
+            Ray rightRay = new Ray(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(raycastDistance, 0, -roadWidth)), -previewObject.transform.right);
+
+            Collider intersectionCollider = intersectingObject.GetComponent<Collider>();
+            if (intersectionCollider.Raycast(leftRay, out leftHit, raycastDistance) && intersectionCollider.Raycast(rightRay, out rightHit, raycastDistance))
+            {
+                testCube.transform.position = leftHit.point;
+                Mesh newMesh = newRoadMeshFilter.mesh;
+                Vector3[] vertices = newMesh.vertices;
+                vertices[0] = previewObject.transform.InverseTransformPoint(leftHit.point);
+                vertices[1] = previewObject.transform.InverseTransformPoint(rightHit.point);
+                newMesh.vertices = vertices;
+                newMesh.RecalculateBounds();
+                newMesh.RecalculateNormals();
+                newRoadMeshFilter.mesh = newMesh;
+            }
+        }
+
+        // Positionate the road and rotate
+        newRoad.transform.position = new Vector3(roadStartPoint.x, 0.2f, roadStartPoint.z);
+        float newRoadAngle = -Mathf.Atan2(roadEndPoint.z - roadStartPoint.z, roadEndPoint.x - roadStartPoint.x) * (180 / Mathf.PI);
+        newRoad.transform.localRotation = Quaternion.Euler(0, newRoadAngle, 0);
+        newRoad.name = "Road";
+
+
+        // Create a collider for the road
+        RoadColliderScript newRoadColliderScript = newRoad.AddComponent<RoadColliderScript>();
+        BoxCollider newRoadMeshCollider = newRoad.AddComponent<BoxCollider>();
+        //newRoadMeshCollider.sharedMesh = newRoadMesh;
+        //newRoadMeshCollider.convex = true;
+        newRoadColliderScript.mainScript = gameObject.GetComponent<StraightRoadMainScript>();
+        newRoadColliderScript.camera = camera;
+        newRoadColliderScript.roadStartPoint = roadStartPoint;
+        newRoadColliderScript.roadEndPoint = roadEndPoint;
+        newRoadColliderScript.previewTransform = previewObject.transform;
+
+
+        lastRoadAngle = newRoadAngle;
     }
 
     // Get the active reference for making the arc, this depends on the mouse, if the mouse is to left then return the left reference
@@ -298,12 +417,21 @@ public class StraightRoadMainScript : MonoBehaviour
         reference3.transform.position = roadEndPoint;
 
         isContinuing = true;
+        EnableArcPreview(true);
 
         // Stop conventional road update coroutine and starts a new, for the continuation preview/road
 
 
 
         clickIndex = 1;
+    }
+
+    public void EnableArcPreview(bool enable)
+    {
+        reference1.GetComponent<MeshRenderer>().enabled = enable;
+        reference2.GetComponent<MeshRenderer>().enabled = enable;
+        reference3.GetComponent<MeshRenderer>().enabled = enable;
+        continuationObject.GetComponent<MeshRenderer>().enabled = enable;
     }
 
     public void MoveAccordingToRotation(Transform reference, Transform objectToMove, Vector3 moveTo)

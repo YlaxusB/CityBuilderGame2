@@ -18,6 +18,8 @@ using static UnityEditor.PlayerSettings;
 using static UnityEngine.ParticleSystem;
 using Unity.VisualScripting;
 using UnityEditor.PackageManager.UI;
+using System.Net.Sockets;
+using UnityEngine.AI;
 //using System.Numerics;
 
 public class StraightRoadMainScript : MonoBehaviour
@@ -26,6 +28,8 @@ public class StraightRoadMainScript : MonoBehaviour
     public float width = 1;
     public float lanes = 1;
     public bool oneWay = false;
+
+    public Transform lastRoad;
 
     public GameObject mouse;
     public bool isMouseHoldingRoad;
@@ -302,7 +306,7 @@ public class StraightRoadMainScript : MonoBehaviour
 
             activeReference.transform.localRotation = Quaternion.Euler(0, angle, 0);
             // Create and assign the straight road mesh
-            previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, hit.point + new Vector3(0, 0.1f, 0) }, roadWidth);
+            previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, hit.point + new Vector3(0, 0.2f, 0) }, roadWidth);
 
             previewObject.transform.localRotation = Quaternion.Euler(0, angle, 0);
             previewObject.transform.position = activeReference.transform.position;
@@ -311,8 +315,10 @@ public class StraightRoadMainScript : MonoBehaviour
             MoveAccordingToRotation(activeReference.transform, previewObject.transform, moveTo);
 
             roadEndPoint = hit.point;
+            roadEndPoint.y = 0.2f;
             // Build the road and the continuation arc, connecting the old road (first) and the new road (second)
             roadStartPoint = previewObject.transform.position;
+            roadStartPoint.y = 0.2f;
         }
     }
 
@@ -325,6 +331,8 @@ public class StraightRoadMainScript : MonoBehaviour
         newRoadMeshRenderer.material = roadMaterial;
         MeshFilter newRoadMeshFilter = newRoad.AddComponent<MeshFilter>();
         // Build the mesh along the given points
+        roadStartPoint.y = 0.2f;
+        roadEndPoint.y = 0.2f;
         Mesh newRoadMesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, roadEndPoint }, 2);
         newRoadMeshFilter.mesh = newRoadMesh;
 
@@ -360,7 +368,7 @@ public class StraightRoadMainScript : MonoBehaviour
         }
 
         // Positionate the road and rotate
-        newRoad.transform.position = new Vector3(roadStartPoint.x, 0.2f, roadStartPoint.z);
+        newRoad.transform.position = new Vector3(roadStartPoint.x, 0, roadStartPoint.z);
         float newRoadAngle = -Mathf.Atan2(roadEndPoint.z - roadStartPoint.z, roadEndPoint.x - roadStartPoint.x) * (180 / Mathf.PI);
         newRoad.transform.localRotation = Quaternion.Euler(0, newRoadAngle, 0);
         newRoad.name = "Road";
@@ -376,7 +384,7 @@ public class StraightRoadMainScript : MonoBehaviour
         newRoadColliderScript.roadStartPoint = roadStartPoint;
         newRoadColliderScript.roadEndPoint = roadEndPoint;
         newRoadColliderScript.previewTransform = previewObject.transform;
-
+        lastRoad = newRoad.transform;
 
         lastRoadAngle = newRoadAngle;
     }
@@ -400,6 +408,7 @@ public class StraightRoadMainScript : MonoBehaviour
     public void ContinueRoad()
     {
         Vector3 oldStartPoint = roadStartPoint;
+        roadEndPoint += previewObject.transform.TransformDirection(new Vector3(-roadWidth * 2, 0, 0)); // Start the continuation before the real roading end
         roadStartPoint = roadEndPoint;
 
         // Reference 1 is the left, 2 is the right, 3 is the center
@@ -418,6 +427,25 @@ public class StraightRoadMainScript : MonoBehaviour
 
         isContinuing = true;
         EnableArcPreview(true);
+
+        // Loop  through old road vertices and remove the ones that are colliding with the continuation
+        MeshFilter lastRoadMeshFilter = lastRoad.GetComponent<MeshFilter>();
+        List<Vector3> lastRoadVertices = lastRoadMeshFilter.mesh.vertices.ToList();
+        List<Vector3> lastRoadNewVertices = new List<Vector3>();
+        foreach (Vector3 vertex in lastRoadVertices)
+        {
+            if (vertex.x < lastRoad.InverseTransformPoint(reference3.transform.position).x)
+            {
+                lastRoadNewVertices.Add(vertex);
+            }
+        }
+        lastRoadNewVertices.Add(lastRoad.InverseTransformPoint(reference2.transform.position));
+        lastRoadNewVertices.Add(lastRoad.InverseTransformPoint(reference1.transform.position));
+        Mesh lastRoadNewMesh = lastRoadMeshFilter.mesh;
+        lastRoadNewMesh.vertices = lastRoadNewVertices.ToArray();
+        lastRoadNewMesh.RecalculateBounds();
+        lastRoadNewMesh.RecalculateNormals();
+        lastRoad.GetComponent<MeshFilter>().mesh = lastRoadNewMesh;
 
         // Stop conventional road update coroutine and starts a new, for the continuation preview/road
 

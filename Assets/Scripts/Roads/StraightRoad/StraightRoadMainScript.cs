@@ -20,6 +20,7 @@ using Unity.VisualScripting;
 using UnityEditor.PackageManager.UI;
 using System.Net.Sockets;
 using UnityEngine.AI;
+using UnityEditor.Rendering;
 //using System.Numerics;
 
 public class StraightRoadMainScript : MonoBehaviour
@@ -107,10 +108,13 @@ public class StraightRoadMainScript : MonoBehaviour
                     // Move Circle Preview and create its mesh
                     if (!isMouseOverRoad)
                     {
-                        suggestedMouseVector = Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.2f, 0);
+                        suggestedMouseVector = Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.0f, 0);
                     }
                     roadStartPoint = suggestedMouseVector;
                     previewObject.transform.position = suggestedMouseVector; //Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.1f, 0);
+                    Vector3 p = previewObject.transform.position;
+                    previewObject.transform.position = new Vector3(p.x, 0.2f, p.z);
+
                     previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.CreatePrePreviewMesh(previewObject, Raycast3D.RaycastPoint(camera), 2);
 
                     if (Input.GetButtonDown("Fire1"))
@@ -133,16 +137,21 @@ public class StraightRoadMainScript : MonoBehaviour
                         UpdatePreview();
                         // Assume the first rectangle is named "outerRectangle" and the second is named "innerRectangle"
                         // Assume the first rectangle is named "outerRectangle" and the second is named "innerRectangle"
+
                         Collider innerCollider = intersectingObject.GetComponent<Collider>();
                         Collider outerCollider = previewObject.GetComponent<Collider>();
 
                         float raycastDistance = Vector3.Distance(previewObject.transform.position, hit.point);
+                        //Debug.Log(raycastDistance);
 
                         RaycastHit leftHit;
                         Ray leftRay = new Ray(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(raycastDistance, 0, roadWidth)), -previewObject.transform.right);
 
                         RaycastHit rightHit;
                         Ray rightRay = new Ray(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(raycastDistance, 0, -roadWidth)), -previewObject.transform.right);
+
+                        testCube.transform.position = previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(raycastDistance, 0, -roadWidth));
+                        Debug.DrawRay(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(raycastDistance, 0, -roadWidth)), -previewObject.transform.right, UnityEngine.Color.red);
 
                         if (innerCollider.Raycast(leftRay, out leftHit, raycastDistance) && innerCollider.Raycast(rightRay, out rightHit, raycastDistance))
                         {
@@ -173,8 +182,15 @@ public class StraightRoadMainScript : MonoBehaviour
                             instantiateContinuationMeshCollider.convex = true;
 
                             // Start the continuation road function
-                            ContinueRoad();
+                            if (hit.transform.tag != "Road")
+                            {
+                                ContinueRoad();
+                            }
+
                         }
+                        Vector3 p = previewObject.transform.position;
+                        previewObject.transform.position = new Vector3(p.x, 0.2f, p.z);
+                        roadStartPoint.y = 0.0f;
                     }
                     else
                     {
@@ -213,6 +229,7 @@ public class StraightRoadMainScript : MonoBehaviour
                                 clickIndex = 0;
                                 // Create the continuation arc
                                 GameObject instantiateContinuation = Instantiate(continuationObject);
+                                instantiateContinuation.tag = "Intersection";
                                 MeshCollider instantiateContinuationMeshCollider = instantiateContinuation.AddComponent<MeshCollider>();
                                 instantiateContinuationMeshCollider.convex = true;
 
@@ -227,6 +244,21 @@ public class StraightRoadMainScript : MonoBehaviour
                 // Right Click decreases clickIndex by 1
                 if (Input.GetButtonDown("Fire2"))
                 {
+/*                    if (clickIndex >= 1)
+                    {
+                        Mesh newMesh = previewObject.GetComponent<MeshFilter>().mesh;
+                        Vector3[] vertices = newMesh.vertices;
+                        List<Vector3> newVertices = new List<Vector3>();
+                        newVertices.Add(vertices[0]);
+                        newVertices.Add(vertices[1]);
+                        newVertices.Add(lastRoad.transform.position + lastRoad.transform.TransformPoint(new Vector3(vertices[1].x + roadWidth, 0, roadWidth)));
+                        newVertices.Add(lastRoad.transform.position + lastRoad.transform.TransformPoint(new Vector3(vertices[1].x + roadWidth, 0, -roadWidth)));
+                        //GameObject.Find("eaeaeaa").transform.position = rightHit.point;
+                        newMesh.vertices = newVertices.ToArray();
+                        newMesh.RecalculateBounds();
+                        newMesh.RecalculateNormals();
+                        lastRoad.GetComponent<MeshFilter>().mesh = newMesh;
+                    }*/
                     clickIndex--;
                     isContinuing = false;
                     EnableArcPreview(false);
@@ -256,12 +288,12 @@ public class StraightRoadMainScript : MonoBehaviour
         Physics.Raycast(ray, out hit);
 
         // Move the preview object to start position
-        previewObject.transform.position = roadStartPoint;
+        previewObject.transform.position = roadStartPoint + new Vector3(0, 0.2f, 0);
         // Get the angle and rotate the straight road
         float angle = -Mathf.Atan2(Raycast3D.RaycastPoint(camera).z - roadStartPoint.z, Raycast3D.RaycastPoint(camera).x - roadStartPoint.x) * (180 / Mathf.PI);
         previewObject.transform.localRotation = Quaternion.Euler(0, angle, 0);
         // Create and assign the straight road mesh
-        previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.1f, 0) }, 2);
+        previewObject.GetComponent<MeshFilter>().mesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, Raycast3D.RaycastPoint(camera) + new Vector3(0, 0.0f, 0) }, 2);
 
         // If its a road continuation then also updates the arc
         if (isContinuing)
@@ -310,15 +342,70 @@ public class StraightRoadMainScript : MonoBehaviour
 
             previewObject.transform.localRotation = Quaternion.Euler(0, angle, 0);
             previewObject.transform.position = activeReference.transform.position;
+
             //MoveAccordingToRotation(previewObject.transform, previewObject.transform, new Vector3(roadWidth, 0, 0));
             Vector3 moveTo = activeReference.name == "ReferencePreview1" ? new Vector3(0, 0, roadWidth) : new Vector3(0, 0, -roadWidth);
             MoveAccordingToRotation(activeReference.transform, previewObject.transform, moveTo);
 
             roadEndPoint = hit.point;
-            roadEndPoint.y = 0.2f;
+            roadEndPoint.y = 0.0f;
             // Build the road and the continuation arc, connecting the old road (first) and the new road (second)
             roadStartPoint = previewObject.transform.position;
-            roadStartPoint.y = 0.2f;
+            roadStartPoint.y = 0.0f;
+        }
+
+        // Connect the road ending to another road
+        if (hit.transform && hit.transform.tag == "Road")
+        {
+            RaycastJunctionMesh(hit);
+        }
+
+
+        Vector3 p = previewObject.transform.position;
+        previewObject.transform.position = new Vector3(p.x, 0.2f, p.z);
+
+    }
+
+    // This is the raycast when the road ending is over another road, then it raycasts to connect them and return a new a mesh
+    public Mesh RaycastJunctionMesh(RaycastHit hit)
+    {
+
+
+        float angle = -Mathf.Atan2(Raycast3D.RaycastPoint(camera).z - roadStartPoint.z, Raycast3D.RaycastPoint(camera).x - roadStartPoint.x) * (180 / Mathf.PI);
+
+        float raycastDistance = Vector3.Distance(previewObject.transform.position, roadEndPoint) + (roadWidth * angle);
+        RaycastHit leftHit;
+        Ray leftRay = new Ray(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(0, 0, roadWidth)), previewObject.transform.right);
+
+        RaycastHit rightHit;
+        Ray rightRay = new Ray(previewObject.transform.position + previewObject.transform.TransformDirection(new Vector3(0, 0, -roadWidth)), previewObject.transform.right);
+
+
+        Collider hittedObjectCollider = hit.transform.GetComponent<Collider>();
+        if (hittedObjectCollider.Raycast(leftRay, out leftHit, 15000) && hittedObjectCollider.Raycast(rightRay, out rightHit, 15000))
+        {
+            testCube.transform.position = leftHit.point;
+            Mesh newMesh = previewObject.GetComponent<MeshFilter>().mesh;
+            Vector3[] vertices = newMesh.vertices;
+            List<Vector3> newVertices = new List<Vector3>();
+            foreach (Vector3 vertex in vertices)
+            {
+                if (vertex.x < previewObject.transform.InverseTransformPoint(leftHit.point).x)
+                {
+                    newVertices.Add(vertex);
+                }
+            }
+            newVertices.Add(previewObject.transform.InverseTransformPoint(leftHit.point));
+            newVertices.Add(previewObject.transform.InverseTransformPoint(rightHit.point));
+            //GameObject.Find("eaeaeaa").transform.position = rightHit.point;
+            newMesh.vertices = newVertices.ToArray();
+            newMesh.RecalculateBounds();
+            newMesh.RecalculateNormals();
+            return newMesh;
+        }
+        else
+        {
+            return null;
         }
     }
 
@@ -331,10 +418,11 @@ public class StraightRoadMainScript : MonoBehaviour
         newRoadMeshRenderer.material = roadMaterial;
         MeshFilter newRoadMeshFilter = newRoad.AddComponent<MeshFilter>();
         // Build the mesh along the given points
-        roadStartPoint.y = 0.2f;
-        roadEndPoint.y = 0.2f;
+        roadStartPoint.y = 0.0f;
+        roadEndPoint.y = 0.0f;
         Mesh newRoadMesh = StraightRoadMeshMain.BuildMeshAlongLocalPoints(new List<Vector3>() { roadStartPoint, roadEndPoint }, 2);
         newRoadMeshFilter.mesh = newRoadMesh;
+        newRoad.tag = "Road";
 
 
 
@@ -368,7 +456,7 @@ public class StraightRoadMainScript : MonoBehaviour
         }
 
         // Positionate the road and rotate
-        newRoad.transform.position = new Vector3(roadStartPoint.x, 0, roadStartPoint.z);
+        newRoad.transform.position = new Vector3(roadStartPoint.x, 0.2f, roadStartPoint.z);
         float newRoadAngle = -Mathf.Atan2(roadEndPoint.z - roadStartPoint.z, roadEndPoint.x - roadStartPoint.x) * (180 / Mathf.PI);
         newRoad.transform.localRotation = Quaternion.Euler(0, newRoadAngle, 0);
         newRoad.name = "Road";
@@ -387,6 +475,15 @@ public class StraightRoadMainScript : MonoBehaviour
         lastRoad = newRoad.transform;
 
         lastRoadAngle = newRoadAngle;
+
+        // Connect the road ending with another road
+        RaycastHit hit2;
+        Ray ray2 = camera.ScreenPointToRay(Input.mousePosition);
+        Physics.Raycast(ray2, out hit2);
+        if (hit2.transform && hit2.transform.tag == "Road")
+        {
+            newRoadMeshFilter.mesh = previewObject.GetComponent<MeshFilter>().mesh; //RaycastJunctionMesh(hit2) != null ? RaycastJunctionMesh(hit2) : newRoadMesh;
+        }
     }
 
     // Get the active reference for making the arc, this depends on the mouse, if the mouse is to left then return the left reference
@@ -409,6 +506,7 @@ public class StraightRoadMainScript : MonoBehaviour
     {
         Vector3 oldStartPoint = roadStartPoint;
         roadEndPoint += previewObject.transform.TransformDirection(new Vector3(-roadWidth * 2, 0, 0)); // Start the continuation before the real roading end
+        roadEndPoint.y = 0.2f;
         roadStartPoint = roadEndPoint;
 
         // Reference 1 is the left, 2 is the right, 3 is the center
